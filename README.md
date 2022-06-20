@@ -1,4 +1,6 @@
-##LSTM From Scratch
+# NB: THIS IS A PORT FROM ANOTHER REPO, NOT YET FULLY FUNCTIONAL
+
+## LSTM From Scratch
 
 This is an LSTM-based encoder-decoder architecture written in Java from scratch. The project has virtually no 
 dependencies apart from JAMA, a concise implementation of a matrix data structure and basic matrix operations, 
@@ -21,7 +23,7 @@ This task models dependency structure in sentences in a natural language, and th
 learning such languages is an important research topic in NLP.
 
 
-###References:
+### References:
 
 [1] TBD
 
