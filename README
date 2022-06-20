@@ -1,0 +1,14 @@
+!!THIS FILE IS DATED!!
+
+Running on a large dataset (30k frames generated automatically from random Lambek calculus sequents) with the following
+configuration on an 8 core VM:
+
+$ java -Xmx16G -jar neural.jar -c 10.0 -h 10 -i train.json -s snapshots/ -t 4
+
+ other params:
+
+     minibatch size = 5
+     lexicon rate starts at 4.0 and is halved every 50k batches
+     max output length = 30
+     snaphsots every 1000 batches
+
