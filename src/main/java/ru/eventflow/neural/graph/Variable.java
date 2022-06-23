@@ -10,7 +10,7 @@ import java.io.Serializable;
  * <p>
  * Shape:
  * <p>
- * [1, 1]    -- a scalar values
+ * [1, 1]    -- a scalar
  * [1, n]    -- an n-dimensional vector
  * [n, m]    -- a matrix n-by-m
  */
