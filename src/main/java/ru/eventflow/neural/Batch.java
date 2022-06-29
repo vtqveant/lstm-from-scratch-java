@@ -149,7 +149,11 @@ public class Batch implements Serializable {
         }
         Batch result = new Batch(size, rows, other.columns);
         for (int i = 0; i < size; i++) {
-            result.put(i, get(i).plus(other.get(i)));
+            try {
+                result.put(i, get(i).plus(other.get(i)));
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
         }
         return result;
     }

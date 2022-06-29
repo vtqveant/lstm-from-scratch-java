@@ -13,7 +13,7 @@ import java.util.List;
  */
 public class VanillaDecoder implements Decoder {
 
-    public static final int MAX_OUTPUT_LENGTH = 6;
+    public static final int MAX_OUTPUT_LENGTH = 2;
     private Parameters parameters;
     private List<String> teacher;
 
@@ -25,6 +25,7 @@ public class VanillaDecoder implements Decoder {
     @Override
     public List<Node> decode(NetworkFactory factory, List<LSTM> encoder, boolean verbose, boolean teacherForcing) {
         List<Node> outputs = new ArrayList<>();
+        List<Node> y_hats = new ArrayList<>();
 
         List<Node> encoderHiddenStates = new ArrayList<>(encoder.size());
         for (LSTM cell : encoder) {
@@ -90,9 +91,10 @@ public class VanillaDecoder implements Decoder {
             s = parameters.decode(distribution);
 
 
-            // collect outputs
+            // collect outputs and y_hats
             if (!s.equals(Parameters.EOS)) {
                 outputs.add(cell.output);
+                y_hats.add(cell.y_hat);
 
                 sb.append(String.format("%-6s", s));
                 sb.append(" ");
@@ -102,7 +104,7 @@ public class VanillaDecoder implements Decoder {
                     sb.append(String.format("%.6f ", distribution.get(new int[]{0, i, 0})));
                 }
                 sb.append("\n");
-                // distribution.print(String.valueOf(s));
+                distribution.print(s);
             }
 
         } while (!s.equals(Parameters.EOS) && outputPosition < MAX_OUTPUT_LENGTH);
@@ -123,7 +125,8 @@ public class VanillaDecoder implements Decoder {
             System.out.println(sb2);
         }
 
-        return outputs;
+//        return outputs;
+        return y_hats;
     }
 
 }

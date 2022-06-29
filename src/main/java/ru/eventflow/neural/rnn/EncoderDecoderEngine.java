@@ -1,11 +1,13 @@
 package ru.eventflow.neural.rnn;
 
+import Jama.Matrix;
 import org.apache.log4j.Logger;
 import ru.eventflow.neural.Batch;
 import ru.eventflow.neural.PersistenceUtils;
 import ru.eventflow.neural.dataset.TrainingExample;
 import ru.eventflow.neural.graph.*;
 import ru.eventflow.neural.visualization.AttentionVisualizer;
+import ru.eventflow.neural.visualization.ComputationGraphVisualizer;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -131,7 +133,7 @@ public class EncoderDecoderEngine {
             // submit and wait for completion
             try {
                 for (Callable<Void> callable : tasks) {
-                    ecs.submit(callable);
+                     ecs.submit(callable);
                 }
                 for (int i = 0; i < tasks.size(); i++) {
                     try {
@@ -139,6 +141,7 @@ public class EncoderDecoderEngine {
                     } catch (ExecutionException e) {
                         System.out.println("Task threw an exception");
                         logger.error(e);
+                        e.printStackTrace();
                     }
                 }
             } catch (InterruptedException e) {
@@ -262,68 +265,49 @@ public class EncoderDecoderEngine {
             List<LSTM> encoder = buildEncoder(detachedFactory, source);
 
             // attention is inside the decoder
-            List<Node> output = new VanillaDecoder(parametersCopy, target).decode(detachedFactory, encoder, verbose, true);
+            List<Node> y_hats = new VanillaDecoder(parametersCopy, target).decode(detachedFactory, encoder, verbose, true);
 
-            List<Node> distributions = new ArrayList<>();
+            // a node for zero padding
+            Placeholder none = new Placeholder(new int[]{1, onehotSize, 1});
+            none.setValue(Batch.zeros(new int[]{1, onehotSize, 1}));
 
-            int out_seq_length = output.size();
-            Pack pack = new Pack(new int[]{1, out_seq_length, out_seq_length}, distributions);
+            // individual cross-entropy losses for each generated token
+            Node sequenceLoss = null;
 
-            int gold_out_seq_length = target.size();
+            // pad with zeros
+            int paddedSequenceLength = Math.max(y_hats.size(), target.size());
+            for (int i = 0; i < paddedSequenceLength; i++) {
+                Node y_hat;
+                if (i < y_hats.size()) {
+                    y_hat = y_hats.get(i);
+                } else {
+                    y_hat = none;
+                }
 
-            int maxSeqLength = Math.max(out_seq_length, gold_out_seq_length);
-            int max_pad_size = maxSeqLength * maxSeqLength;
+                Placeholder y = new Placeholder(new int[]{1, onehotSize, 1});
+                if (i < target.size()) {
+                    Batch gold_data = new Batch(new int[]{1, onehotSize, 1});
+                    double[][] onehot = new double[1][onehotSize];
+                    onehot[0] = parameters.onehot(target.get(i)).get(0).getColumnPackedCopy();
+                    gold_data.put(0, new Matrix(onehot).transpose());
+                    y.setValue(gold_data);
+                } else {
+                    y = none;
+                }
 
-            // flatten and pad the linkage prediction
-            // [1, max_pad_size, y_hat_flat_size] x [1, y_hat_flat_size, 1] -> [1, max_pad_size, 1]
-            int y_hat_flat_length = out_seq_length * out_seq_length;
-            Placeholder padder_y_hat = new Placeholder(new int[]{1, max_pad_size, y_hat_flat_length});
-
-            Batch padder_batch = Batch.eye(new int[]{1, max_pad_size, y_hat_flat_length});
-            // TODO this is somewhat hackish, make a proper regularization instead
-            for (int i = y_hat_flat_length; i < max_pad_size; i++) {
-                for (int j = 0; j < y_hat_flat_length; j++) {
-                    padder_batch.put(new int[]{0, i, j}, 1.0); // the corresponding gold value will be zero, so the hamming loss will go up
+                // this CE loss does not support matrices, for now it only supports [1, n, 1] shapes
+                Node timestepLoss = new CrossEntropyLoss(new int[]{1, 1, 1}, y, y_hat);
+                if (sequenceLoss == null) {
+                    sequenceLoss = timestepLoss;
+                } else {
+                    sequenceLoss = new Sum(new int[]{1, 1, 1}, sequenceLoss, timestepLoss);
                 }
             }
-//            padder_batch.print("padder_batch");
-            padder_y_hat.setValue(padder_batch);
 
-            Flatten y_hat_flat = new Flatten(new int[]{1, y_hat_flat_length, 1}, pack);
-            Node y_hat_padded = new Matmul(new int[]{1, max_pad_size, 1}, padder_y_hat, y_hat_flat);
-
-
-            // build the gold value for linkage
-            Placeholder gold = new Placeholder(new int[]{1, gold_out_seq_length, gold_out_seq_length});
-            Batch gold_data = new Batch(new int[]{1, gold_out_seq_length, gold_out_seq_length});
-
-            gold.setValue(gold_data);
-
-            // flatten and pad the gold linkage
-            // [1, max_pad_size, gold_out_seq_length * gold_out_seq_length] x [1, gold_out_seq_length * gold_out_seq_length, 1] -> [1, max_pad_size, 1]
-            int gold_out_seq_flat_length = gold_out_seq_length * gold_out_seq_length;
-            Placeholder padder_gold = new Placeholder(new int[]{1, max_pad_size, gold_out_seq_flat_length});
-
-            // TODO it's hackish, a proper regularization will be much better (but keep the eye padder)
-            Batch padder_gold_batch = Batch.eye(new int[]{1, max_pad_size, gold_out_seq_flat_length});
-            for (int i = gold_out_seq_flat_length; i < max_pad_size; i++) {
-                for (int j = 0; j < gold_out_seq_flat_length; j++) {
-                    padder_gold_batch.put(new int[]{0, i, j}, 1.0); // the corresponding predicted value will be zero, so the hamming loss will go up
-                }
-            }
-//            padder_gold_batch.print("padder_gold_batch");
-            padder_gold.setValue(padder_gold_batch);
-
-            Flatten gold_flat = new Flatten(new int[]{1, gold_out_seq_flat_length, 1}, gold);
-            Node gold_padded = new Matmul(new int[]{1, max_pad_size, 1}, padder_gold, gold_flat);
-
-//            Node loss = new HammingLoss(new int[]{1, 1, 1}, gold_padded, y_hat_padded, regularizationCoefficient, copy);
-
-            // for a cross-entropy loss I also have to turn an input vector into a probability distribution -- TODO this is so hackish
-            // TODO a better approach would be to apply some activation fn. (sigmoid, say) element-wise
-            Node gold_padded_distribution = new Softmax(new int[]{1, max_pad_size, 1}, gold_padded);
-            Node y_hat_padded_distribution = new Softmax(new int[]{1, max_pad_size, 1}, y_hat_padded);
-            Node loss = new CrossEntropyLoss(new int[]{1, 1, 1}, gold_padded_distribution, y_hat_padded_distribution);
+            // average cross-entropy loss for entire generated sequence
+            Placeholder inverseLength = new Placeholder(new int[]{1, 1, 1});
+            inverseLength.setValue(Batch.scalar(1.0 / paddedSequenceLength));
+            Node loss = new Mul(new int[]{1, 1, 1}, sequenceLoss, inverseLength);
 
             // forward
             averageLoss.add(loss.getValue().get(new int[]{0, 0, 0}));

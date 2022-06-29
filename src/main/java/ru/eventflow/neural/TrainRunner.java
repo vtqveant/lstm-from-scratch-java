@@ -64,7 +64,7 @@ public class TrainRunner {
         BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(input)));
         while ((line = reader.readLine()) != null) {
             String[] chunks = line.split(" ");
-            TrainingExample example = new TrainingExample(Arrays.asList(chunks), Collections.singletonList("["));
+            TrainingExample example = new TrainingExample(Arrays.asList(chunks), Arrays.asList("[", "]"));
             examples.add(example);
         }
 
